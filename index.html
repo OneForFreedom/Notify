@@ -1,181 +1,135 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Notifly 🎼</title>
-  <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.7.7/build/opensheetmusicdisplay.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/midiconvert@0.5.2/build/MidiConvert.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/midi-parser-js@4.0.4/index.min.js"></script>
   <style>
     body {
-      background-color: black;
+      background-color: #111;
       color: white;
       font-family: sans-serif;
-      padding: 20px;
+      margin: 2rem;
     }
     #sheet {
-      background: white;
-      color: black;
-      padding: 10px;
-      border-radius: 8px;
+      background-color: white;
       margin-top: 1rem;
+      border-radius: 10px;
+      padding: 1rem;
     }
-    #tempo-container {
+    #piano {
       display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 1rem;
-    }
-    input[type="range"] {
-      width: 150px;
-    }
-    .piano {
       margin-top: 2rem;
     }
     .key {
-      display: inline-block;
       width: 40px;
       height: 150px;
-      margin: 1px;
-      background: white;
       border: 1px solid black;
-      border-radius: 5px;
+      margin: 0 1px;
+      background: white;
+      color: black;
       text-align: center;
       line-height: 150px;
-      color: black;
+      border-radius: 5px;
       cursor: pointer;
     }
     .key:active {
-      background: lightblue;
+      background-color: lightblue;
     }
   </style>
 </head>
 <body>
   <h1>Notifly 🎼</h1>
-  <p>Upload MusicXML, MEI or MIDI → Watch & Listen</p>
-  <input type="file" accept=".musicxml,.xml,.mei,.mid,.midi" id="file-input" />
-  <p id="filename"></p>
+  <input type="file" id="upload" accept=".xml,.musicxml,.mei,.mid,.midi">
+  <div id="info"></div>
   <div id="sheet"></div>
-  <button id="play-btn">▶️ Play</button>
-  <div id="tempo-container">
-    <label for="tempo">Tempo</label>
-    <input type="range" id="tempo" min="40" max="200" step="5" value="120" />
-    <span id="bpm">120 BPM</span>
-  </div>
-  <div class="piano" id="piano"></div>
+  <button id="play">▶️ Play</button>
+  <input type="range" id="tempo" min="40" max="200" value="120"> <span id="bpm">120 BPM</span>
+  <div id="piano"></div>
 
   <script>
-    const fileInput = document.getElementById('file-input');
-    const sheetContainer = document.getElementById('sheet');
-    const playBtn = document.getElementById('play-btn');
+    const upload = document.getElementById('upload');
+    const sheetDiv = document.getElementById('sheet');
+    const info = document.getElementById('info');
+    const playBtn = document.getElementById('play');
     const tempoSlider = document.getElementById('tempo');
     const bpmDisplay = document.getElementById('bpm');
-    const filenameDisplay = document.getElementById('filename');
     const piano = document.getElementById('piano');
 
-    let osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(sheetContainer, {
-      backend: 'svg',
-      drawTitle: true,
-    });
-    let sampler;
-    let currentTempo = 120;
-    let midiData = null;
+    const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(sheetDiv);
+    let midiTrack = null;
+    let sampler = null;
 
-    tempoSlider.addEventListener('input', (e) => {
-      currentTempo = parseInt(e.target.value);
-      bpmDisplay.textContent = `${currentTempo} BPM`;
-    });
-
-    fileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      filenameDisplay.textContent = `Loaded: ${file.name}`;
-      const reader = new FileReader();
-      const ext = file.name.split('.').pop().toLowerCase();
-      reader.onload = async (event) => {
-        const content = event.target.result;
-        if (["musicxml", "xml", "mei"].includes(ext)) {
-          midiData = null;
-          await osmd.load(content);
-          osmd.render();
-        } else if (["mid", "midi"].includes(ext)) {
-          midiData = await MidiConvert.parse(content);
-          sheetContainer.innerHTML = `<p>MIDI loaded: ${file.name}</p>`;
-        }
-      };
-      if (["mid", "midi"].includes(ext)) {
-        reader.readAsArrayBuffer(file);
-      } else {
-        reader.readAsText(file);
-      }
-    });
-
-    playBtn.addEventListener('click', async () => {
-      await Tone.start();
+    const initSampler = async () => {
       if (!sampler) {
         sampler = new Tone.Sampler({
           urls: {
             C4: "C4.mp3",
             "D#4": "Ds4.mp3",
             "F#4": "Fs4.mp3",
-            A4: "A4.mp3",
+            A4: "A4.mp3"
           },
           release: 1,
-          baseUrl: "https://tonejs.github.io/audio/salamander/",
+          baseUrl: "https://tonejs.github.io/audio/salamander/"
         }).toDestination();
+        await Tone.loaded();
       }
+    };
 
-      if (midiData) {
-        let now = Tone.now();
-        midiData.tracks.forEach(track => {
-          track.notes.forEach(note => {
-            sampler.triggerAttackRelease(note.name, note.duration, now + note.time);
-          });
-        });
-      } else if (osmd.GraphicSheet) {
-        const measureList = osmd.GraphicSheet.measureList;
-        let time = 0;
-        measureList.forEach((measure) => {
-          measure.staffEntries.forEach((entry) => {
-            entry.graphicVoiceEntries.forEach((gve) => {
-              gve.notes.forEach((note) => {
-                const name = note.sourceNote?.pitch?.toString(true);
-                const duration = note.sourceNote?.length?.realValue;
-                if (name && duration) {
-                  sampler.triggerAttackRelease(name, duration, `+${time}`);
-                  time += duration * (60 / currentTempo);
-                }
-              });
-            });
-          });
-        });
+    upload.addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const ext = file.name.split('.').pop().toLowerCase();
+      info.innerText = `Loaded: ${file.name}`;
+
+      if (["xml", "musicxml", "mei"].includes(ext)) {
+        const text = await file.text();
+        await osmd.load(text);
+        osmd.render();
+        midiTrack = null;
+      } else if (["mid", "midi"].includes(ext)) {
+        const arrayBuffer = await file.arrayBuffer();
+        const midi = MidiParser.parse(arrayBuffer);
+        midiTrack = midi.track[0].event.filter(e => e.subtype === "noteOn");
+        sheetDiv.innerHTML = `<p>MIDI Loaded: ${file.name}</p>`;
       }
     });
 
-    // Add playable piano keys
+    playBtn.addEventListener('click', async () => {
+      await Tone.start();
+      await initSampler();
+
+      if (midiTrack) {
+        const now = Tone.now();
+        let time = now;
+        midiTrack.forEach(note => {
+          const noteName = "C4";
+          sampler.triggerAttackRelease(noteName, "8n", time);
+          time += 0.5;
+        });
+      } else {
+        // Optional: extract and play from OSMD
+      }
+    });
+
+    tempoSlider.addEventListener('input', e => {
+      bpmDisplay.textContent = `${e.target.value} BPM`;
+    });
+
     const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"];
-    notes.forEach(note => {
-      const key = document.createElement("div");
-      key.className = "key";
-      key.textContent = note;
-      key.addEventListener("click", async () => {
+    notes.forEach(n => {
+      const k = document.createElement("div");
+      k.className = "key";
+      k.textContent = n;
+      k.onclick = async () => {
         await Tone.start();
-        if (!sampler) {
-          sampler = new Tone.Sampler({
-            urls: {
-              C4: "C4.mp3",
-              "D#4": "Ds4.mp3",
-              "F#4": "Fs4.mp3",
-              A4: "A4.mp3",
-            },
-            release: 1,
-            baseUrl: "https://tonejs.github.io/audio/salamander/",
-          }).toDestination();
-        }
-        sampler.triggerAttackRelease(note, "8n");
-      });
-      piano.appendChild(key);
+        await initSampler();
+        sampler.triggerAttackRelease(n, "8n");
+      };
+      piano.appendChild(k);
     });
   </script>
 </body>
